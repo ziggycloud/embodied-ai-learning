@@ -10,8 +10,6 @@ MicroDuck 在自由滚动的篮球上保持直立，并跟踪平面速度和偏�
 
 Actor 不直接读取球的位置和速度，因此称为 blind actor。训练时 Critic 可以额外读取球状态等特权信息，构成非对称 Actor–Critic；部署只需要 Actor。
 
-课程入口：[Task 1教程](https://github.com/datawhalechina/every-embodied/tree/main/16-专题组队学习/05-MicroDuck运动策略与任务开发专题/01-任务资料/01-MicroDuck篮球平衡强化学习)。代码版本与授权见 [SOURCE.md](SOURCE.md)。
-
 ## 2. 61维观测与14维动作
 
 Actor 观测形状为 `obs[1,61]`，索引采用Python左闭右开区间。
@@ -29,7 +27,7 @@ Actor 观测形状为 `obs[1,61]`，索引采用Python左闭右开区间。
 
 观测必须按配置构造，包括相对默认姿态、尺度和归一化等约定，不能将原始传感器值任意拼接后直接输入模型。
 
-输出 `actions[1,14]` 对应14个受控关节，经环境的缩放、默认姿态偏置与限幅等处理，转换为关节目标。网络输出不等同于原始角度或力矩。上游AGENTS中的普通walk/allcollisions模型顺序为：左腿5个、颈部/头部4个、右腿5个；其他模型不能硬编码沿用索引。
+输出 `actions[1,14]` 对应14个受控关节，经环境的缩放、默认姿态偏置与限幅等处理，转换为关节目标。网络输出不等同于原始角度或力矩。14个受控关节分布在左右腿与颈部/头部。索引必须与对应模型的关节排列一致。
 
 ### 数据从哪里来
 
@@ -89,9 +87,9 @@ $$
 
 动作变化惩罚让策略自行权衡平滑与及时纠正。部署时额外加入训练中没有的低通滤波会改变动作响应并引入延迟，因此不能随意添加。若需要滤波，应将其纳入匹配的训练与验证流程。
 
-## 5. 已完成的短训实验
+## 5. 短训实验与日志解读
 
-用户提供的服务器日志和截图记录：Ubuntu、NVIDIA L40、Warp 1.12.0、CUDA Toolkit 12.9、Driver 12.8，并存在HAMI管理层。训练从公开篮球checkpoint继续，不是从随机初始化训练。
+本次实验环境：Ubuntu、NVIDIA L40、Warp 1.12.0、CUDA Toolkit 12.9、Driver 12.8，并存在HAMI管理层。训练从公开篮球checkpoint继续，不是从随机初始化训练。
 
 | 项目 | 结果 |
 |---|---|
@@ -113,7 +111,11 @@ $$
 
 Mean episode length单位是控制步；训练起始回合进度随机化与短统计窗口会影响它，不能直接当作独立稳定时间评测。分项奖励与Mean reward统计方式不同，不宜直接求和对照。
 
-`fell=0`、`nan_state=0`表示对应日志窗口未记录这类终止。它们不证明独立评测成功率100%。生存率定义为指定评测时长内未摔倒的环境比例，需要另跑评测。
+`fell=0`、`nan_state=0`表示对应日志窗口未记录这类终止。它们不证明独立评测成功率100%。生存率定义为指定评测时长内未摔倒的环境比例。它衡量固定测试条件下的持续稳定性，与累计奖励是不同指标。
+
+$$
+\text{生存率}=\frac{\text{评测时长内未摔倒的环境数}}{\text{参与评测的环境总数}}\times100\%
+$$
 
 ## 6. 安装与训练故障定位
 
@@ -131,7 +133,7 @@ GIT_CONFIG_VALUE_0=https://github.com/Rhoban/bam.git \
 uv sync --locked
 ```
 
-这只临时替换BAM的获取地址，保持锁定提交；其他未缓存依赖仍需联网。离线bundle不收录在本学习仓库。
+这只临时替换BAM的获取地址，保持锁定提交；其他未缓存依赖仍需联网。Git依赖与PyPI依赖走不同下载链路，仅更换PyPI镜像不能解决GitHub源码下载中断。
 
 ### HAMI与CUDA Graph捕获
 
@@ -141,68 +143,21 @@ uv sync --locked
 
 可复用入口：[run_warp_compat.py](scripts/run_warp_compat.py)。它只影响当前进程，不修改上游代码或依赖版本。
 
-## 7. 复现入口
+## 7. 训练、推理与模型导出
 
-首次准备：
+训练阶段需要环境采样、奖励、Critic与优化器；推理阶段使用Actor根据观测和循环状态选择动作，不进行PPO参数更新。录制仿真视频属于推理过程，不等于重新训练。
 
-```bash
-cd task1-microduck-basketball/microduck-playground
-uv sync --locked
-uv run python -c "from huggingface_hub import snapshot_download; snapshot_download('HannesVonEssen/microduck-basketball', local_dir='artifacts/basketball')"
-```
+Checkpoint保存用于恢复训练的状态，可能包含Actor、Critic、优化器和迭代信息；ONNX保存部署用的计算图。两者不是换一个文件扩展名的关系。导出时需要保留观测归一化和动作处理约定，循环策略还需要显式暴露h/c输入输出。
 
-模型路径相对于当前目录。下载成功后应存在 `artifacts/basketball/checkpoint.pt`。uv不会自动下载README中的模型示例。
+PyTorch/ONNX parity比较相同输入与循环状态下的动作和状态输出，判断导出是否保持数值一致性。模型接口与数值一致性通过，也不能替代机器人闭环表现评测。
 
-回到Task 1目录即可启动兼容短训：
+视频输出目录由录像脚本管理，模型输出目录由导出参数管理，两者可能不同。视频用于检查身体姿态、接触和动作现象；生存率与速度误差用于量化表现。
 
-```bash
-cd ..
-bash scripts/train_basketball_smoke.sh
-```
+## 参考资料
 
-新增启动脚本复用已经在服务器验证的关闭内存池设置；新增脚本本身尚未在远程GPU再次执行。
+本文按概念理解与本次实验重新组织，不转载上游教程正文或源码。模型结构和任务配置以项目实现为准。
 
-## 8. 视频输出与ONNX导出（待执行）
-
-上游 [render_checkpoint.py](microduck-playground/scripts/render_checkpoint.py) 提供 `--out-dir`，可直接输出到 `outputs/`。这是仿真推理录像，不需要重新训练。
-
-在上游源码目录执行，先使用公开checkpoint建立基线：
-
-```bash
-mkdir -p outputs/basketball
-MUJOCO_GL=egl uv run --locked python ../scripts/run_warp_compat.py \
-  scripts/render_checkpoint.py \
-  --task Mjlab-Basketball-MicroDuck \
-  --checkpoint-file artifacts/basketball/checkpoint.pt \
-  --out-dir outputs/basketball \
-  --duration-s 10 --num-envs 1 --tag baseline
-```
-
-MP4写入 `outputs/basketball/baseline/`。使用续训结果时，将checkpoint参数换为实际保存的 `logs/rsl_rl/basketball/<run>/model_<iteration>.pt`，并将tag改为 `finetuned`，避免混淆。
-
-这条视频路径已通过源码核对；当前尚未在用户服务器运行，EGL渲染需要服务器提供对应驱动库。视频表现与数值指标需一并检查。
-
-上游export也支持 `--video`：
-
-```bash
-MICRODUCK_BB_BLIND=1 MICRODUCK_BB_HISTORY=1 MUJOCO_GL=egl \
-uv run --locked python ../scripts/run_warp_compat.py scripts/export.py \
-  Mjlab-Basketball-MicroDuck \
-  --checkpoint-file artifacts/basketball/checkpoint.pt \
-  --onnx-file outputs/basketball/policy.onnx \
-  --num-envs 1 --video --video-length 500
-```
-
-注意：`--onnx-file`指定ONNX路径，不决定视频路径。export视频默认在checkpoint父目录的 `videos/play/`。不能把它与Notebook自身的 `outputs/gpu_videos/` 混为同一个入口。
-
-## 9. 当前验收范围
-
-- [x] 完成本体观测、动作、LSTM和PPO的技术整理。
-- [x] 根据服务器日志确认64环境×5轮续训完成。
-- [x] 保存训练截图与环境兼容问题处理方式。
-- [ ] 检查服务器生成的checkpoint文件与模型接口。
-- [ ] 生成并观察自己的篮球仿真视频。
-- [ ] 固定协议比较原模型与续训模型的生存率、速度误差。
-- [ ] 导出ONNX并运行PyTorch/ONNX parity检查。
-
-本次只证明训练链路可运行，不代表续训提高了策略，也不代表真机验证。
+- [Datawhale MicroDuck专题](https://github.com/datawhalechina/every-embodied/tree/main/16-专题组队学习/05-MicroDuck运动策略与任务开发专题)
+- [MicroDuck Playground](https://github.com/Vottivott/microduck-playground)
+- [篮球预训练模型](https://huggingface.co/HannesVonEssen/microduck-basketball)
+- [PPO原论文](https://arxiv.org/abs/1707.06347)

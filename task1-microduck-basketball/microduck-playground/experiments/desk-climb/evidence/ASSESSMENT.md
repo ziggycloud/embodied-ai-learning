@@ -1,1 +1,0 @@
-Fresh official105/256 versuswarm106/256standing10s; handoffs210vs209. No retainedgain. All8fullrolloutsfinite/zero13/wrench0 andinitialspaired;simulatortriggeronly. Keepofficialgetup and56500climber. Driftcomparison saved switch-drift.json. Furthercandidatepromotionnotjustified.
