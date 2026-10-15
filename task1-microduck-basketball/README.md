@@ -1,4 +1,4 @@
-# Task 1：MicroDuck 篮球平衡强化学习
+# 【Datawhale MicroDuck 组队学习】Task 1：MicroDuck 篮球平衡强化学习
 
 ## 1. 任务与系统结构
 
